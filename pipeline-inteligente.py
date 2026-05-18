@@ -2036,3 +2036,258 @@ def crear_dashboard_completo(df_original, df_expandido, modelo, metricas):
     plt.show()
  
     return fig
+
+
+# =============================================================================
+# 7. PIPELINE PRINCIPAL
+# =============================================================================
+def pipeline_inteligente():
+   """
+   FUNCIÓN PRINCIPAL: Orquesta todo el pipeline ETL + ML de principio a fin.
+   Flujo completo en 14 pasos:
+   EXTRACT  → VALIDATE → CLEAN → EXPAND → FEATURES → ENCODE
+   → VALIDATE_QUALITY → OUTLIERS → PREPARE_ML → TRAIN
+   → EVALUATE → VISUALIZE → SAVE → REPORT
+   Returns:
+       dict: Diccionario con todos los objetos generados por el pipeline,
+             listos para análisis adicional o uso interactivo posterior.
+   """
+   # Marca de tiempo de inicio — para medir duración total del pipeline
+   import time
+   tiempo_inicio = time.time()
+   print("=" * 60)
+   print("  PIPELINE INTELIGENTE DE ANALISIS DE DATOS")
+   print("  Bootcamp ETL + Machine Learning")
+   print("=" * 60)
+   # ==========================================================================
+   # PASO 1: EXTRACT — Cargar datos base
+   # ==========================================================================
+   print("\n[1/14] EXTRAYENDO datos base...")
+   df_base = cargar_dataset_base()
+   # Guardia de seguridad: si la carga falla, abortamos el pipeline.
+   # Es mejor parar aquí con un mensaje claro que continuar con df=None
+   # y obtener un AttributeError críptico 50 líneas más abajo.
+   if df_base is None:
+       print("\n  PIPELINE ABORTADO: No se pudo cargar el dataset.")
+       print("  Asegurate de que datos_consolidados_40_registros.csv")
+       print("  este en la misma carpeta que este script.")
+       return None
+   # ==========================================================================
+   # PASO 2: VALIDATE — Validar estructura de datos
+   # ==========================================================================
+   print("\n[2/14] VALIDANDO estructura de datos...")
+   reporte_validacion = validar_estructura_datos(df_base)
+   # Si hay columnas críticas faltantes, el pipeline no puede continuar.
+   # Estado ADVERTENCIA es tolerable — el pipeline continúa con precaución.
+   if reporte_validacion["estado_general"] == "FALLIDO":
+       print("\n  PIPELINE ABORTADO: El dataset no tiene la estructura requerida.")
+       print(f"  Revisa el reporte: {reporte_validacion['validaciones']}")
+       return None
+   # ==========================================================================
+   # PASO 3: TRANSFORM — Limpiar datos
+   # ==========================================================================
+   print("\n[3/14] LIMPIANDO datos...")
+   df_limpio = limpiar_datos(df_base)
+   # ==========================================================================
+   # PASO 4: EXPAND — Expandir dataset a 500 registros
+   # ==========================================================================
+   print("\n[4/14] EXPANDIENDO dataset a 500 registros...")
+   df_expandido = expandir_dataset_500_registros(df_limpio)
+   print(f"  Expansion completada: {len(df_limpio)} -> {len(df_expandido)} registros")
+   # ==========================================================================
+   # PASO 5: TRANSFORM — Crear variables derivadas (feature engineering)
+   # ==========================================================================
+   print("\n[5/14] CREANDO variables derivadas...")
+   df_features = crear_variables_derivadas(df_expandido)
+   # ==========================================================================
+   # PASO 6: ENCODE — Codificar variables categóricas
+   # ==========================================================================
+   print("\n[6/14] CODIFICANDO variables categoricas...")
+   # codificar_variables_categoricas retorna una TUPLA: (df_encoded, encoders)
+   # Desempaquetamos directamente en dos variables independientes.
+   df_encoded, encoders = codificar_variables_categoricas(df_features)
+   # ==========================================================================
+   # PASO 7: VALIDATE — Validar calidad de la expansión
+   # ==========================================================================
+   print("\n[7/14] VALIDANDO calidad de expansion...")
+   reporte_calidad_expansion = validar_calidad_expansion(df_limpio, df_encoded)
+   print(f"  Veredicto de expansion: {reporte_calidad_expansion['veredicto']}")
+   # ==========================================================================
+   # PASO 8: DETECT — Detectar outliers
+   # ==========================================================================
+   print("\n[8/14] DETECTANDO outliers...")
+   reporte_outliers = detectar_outliers(df_encoded)
+   total_outliers = reporte_outliers.get("_resumen", {}).get("total_outliers_iqr", 0)
+   print(f"  Outliers detectados (IQR): {total_outliers} | Decision: conservar")
+   # ==========================================================================
+   # PASO 9: PREPARE — Preparar datos para Machine Learning
+   # ==========================================================================
+   print("\n[9/14] PREPARANDO datos para Machine Learning...")
+   # preparar_datos_ml retorna 5 valores: desempaquetamos todos de una vez.
+   # Esta es una práctica habitual en scikit-learn workflows.
+   X_train, X_test, y_train, y_test, features_usadas = preparar_datos_ml(df_encoded)
+   # ==========================================================================
+   # PASO 10: TRAIN — Entrenar modelo de regresión lineal
+   # ==========================================================================
+   print("\n[10/14] ENTRENANDO modelo de regresion lineal...")
+   modelo = entrenar_modelo_regresion(X_train, y_train)
+   # ==========================================================================
+   # PASO 11: EVALUATE — Evaluar rendimiento del modelo
+   # ==========================================================================
+   print("\n[11/14] EVALUANDO rendimiento del modelo...")
+   metricas = evaluar_modelo(modelo, X_train, X_test, y_train, y_test)
+   print(f"\n  Resultados finales:")
+   print(f"    R2  (Test) : {metricas['test']['r2']:.4f}")
+   print(f"    RMSE(Test) : ${metricas['test']['rmse']:,.2f}")
+   print(f"    MAE (Test) : ${metricas['test']['mae']:,.2f}")
+   print(f"    Diagnostico: {metricas['diagnostico']}")
+   # ==========================================================================
+   # PASO 12: VISUALIZE — Generar todas las visualizaciones
+   # ==========================================================================
+   print("\n[12/14] GENERANDO visualizaciones...")
+   # Gráfica 1: distribución del dataset expandido
+   print("  Grafica 1/3: distribución de datos...")
+   graficar_distribucion_datos(df_encoded)
+   # Gráfica 2: resultados del modelo (requiere y_pred del conjunto de test)
+   print("  Grafica 2/3: resultados del modelo...")
+   y_pred_test = metricas.get("y_pred_test", modelo.predict(X_test))
+   graficar_resultados_modelo(y_test, y_pred_test, metricas)
+   # Gráfica 3: dashboard ejecutivo completo
+   print("  Grafica 3/3: dashboard ejecutivo...")
+   crear_dashboard_completo(df_limpio, df_encoded, modelo, metricas)
+   print("  Graficas guardadas: grafico_distribucion_datos.png,")
+   print("                      grafico_resultados_modelo.png,")
+   print("                      dashboard_completo.png")
+   # ==========================================================================
+   # PASO 13: SAVE — Guardar dataset expandido y resultados
+   # ==========================================================================
+   print("\n[13/14] GUARDANDO resultados en disco...")
+   # Guardar el dataset expandido como CSV
+   # index=False: no incluir el índice de pandas como columna extra en el CSV
+   ruta_dataset = "datos_500_registros.csv"
+   df_encoded.to_csv(ruta_dataset, index=False, encoding="utf-8")
+   print(f"  Dataset guardado : {ruta_dataset} ({len(df_encoded)} registros)")
+   # Guardar reporte de métricas como archivo de texto
+   ruta_metricas = "reporte_metricas.txt"
+   with open(ruta_metricas, "w", encoding="utf-8") as f:
+       f.write("REPORTE DE METRICAS DEL MODELO\n")
+       f.write("=" * 40 + "\n\n")
+       f.write(f"Fecha de ejecucion : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+       f.write(f"Registros totales  : {len(df_encoded)}\n")
+       f.write(f"Features usadas    : {features_usadas}\n\n")
+       f.write("METRICAS TRAIN:\n")
+       f.write(f"  R2   : {metricas['train']['r2']:.4f}\n")
+       f.write(f"  RMSE : ${metricas['train']['rmse']:,.2f}\n")
+       f.write(f"  MAE  : ${metricas['train']['mae']:,.2f}\n\n")
+       f.write("METRICAS TEST:\n")
+       f.write(f"  R2   : {metricas['test']['r2']:.4f}\n")
+       f.write(f"  RMSE : ${metricas['test']['rmse']:,.2f}\n")
+       f.write(f"  MAE  : ${metricas['test']['mae']:,.2f}\n\n")
+       f.write(f"Diagnostico        : {metricas['diagnostico']}\n")
+       f.write(f"Error relativo     : {metricas.get('error_relativo_pct', 0):.1f}%\n")
+       f.write("\nCOEFICIENTES DEL MODELO:\n")
+       try:
+           nombres = list(modelo.feature_names_in_)
+       except AttributeError:
+           nombres = features_usadas
+       for nombre, coef in zip(nombres, modelo.coef_):
+           f.write(f"  {nombre:<30}: {coef:>10.4f}\n")
+       f.write(f"  {'intercepto':<30}: {modelo.intercept_:>10.4f}\n")
+   print(f"  Metricas guardadas: {ruta_metricas}")
+   # ==========================================================================
+   # PASO 14: REPORT — Reporte de calidad final + conclusiones de negocio
+   # ==========================================================================
+   print("\n[14/14] GENERANDO reporte de calidad final...")
+   reporte_calidad_final = generar_reporte_calidad(df_encoded)
+   # Calcular tiempo total de ejecución
+   tiempo_total = time.time() - tiempo_inicio
+   # Imprimir conclusiones de negocio
+   print("\n" + "=" * 60)
+   print("  PIPELINE COMPLETADO EXITOSAMENTE")
+   print("=" * 60)
+   print(f"  Tiempo de ejecucion : {tiempo_total:.1f} segundos")
+   print(f"  Registros procesados: {len(df_encoded):,}")
+   print(f"  Archivos generados  : 4 (CSV + TXT + 3 PNG)")
+   print("\n  CONCLUSIONES DE NEGOCIO:")
+   print(f"  1. Dataset expandido de {len(df_limpio)} a {len(df_encoded)} registros")
+   print("     usando Data Augmentation con Ruido Gaussiano.")
+   print(f"  2. El modelo explica el {metricas['test']['r2']*100:.1f}% de la variacion de precios.")
+   print(f"  3. Error promedio de prediccion: ${metricas['test']['mae']:,.2f} por producto.")
+   print(f"  4. Diagnostico del modelo: {metricas['diagnostico']}")
+   print("  5. Las features mas relevantes son categoria y origen del producto.")
+   print("\n  VALOR PARA EL NEGOCIO:")
+   print("  - Estimar precios de nuevos productos antes de su lanzamiento.")
+   print("  - Identificar productos sobre/subvalorados respecto a su categoria.")
+   print("  - Apoyar decisiones de pricing con evidencia estadistica.")
+   print("=" * 60)
+   # Empaquetar todos los objetos en un diccionario de retorno.
+   # Esto permite usar el pipeline en modo interactivo:
+   # resultados = pipeline_inteligente()
+   # resultados["modelo"].predict(X_nuevo)
+   resultados = {
+       "df_original"            : df_base,
+       "df_limpio"              : df_limpio,
+       "df_expandido"           : df_encoded,
+       "encoders"               : encoders,
+       "features_usadas"        : features_usadas,
+       "X_train"                : X_train,
+       "X_test"                 : X_test,
+       "y_train"                : y_train,
+       "y_test"                 : y_test,
+       "modelo"                 : modelo,
+       "metricas"               : metricas,
+       "reporte_validacion"     : reporte_validacion,
+       "reporte_calidad_expansion": reporte_calidad_expansion,
+       "reporte_outliers"       : reporte_outliers,
+       "reporte_calidad_final"  : reporte_calidad_final,
+       "tiempo_ejecucion_seg"   : round(tiempo_total, 2),
+   }
+   return resultados
+# =============================================================================
+# 8. EJECUCIÓN AUTOMÁTICA
+# =============================================================================
+if __name__ == "__main__":
+   """
+   Punto de entrada del programa.
+   Python ejecuta este bloque SOLO cuando el script se corre directamente:
+       python pipeline_inteligente.py       ← ejecuta este bloque
+   Si el script es IMPORTADO por otro archivo:
+       import pipeline_inteligente          ← NO ejecuta este bloque
+   Esta distinción es fundamental en Python profesional: permite que un
+   script funcione tanto como programa independiente como módulo reutilizable.
+   """
+   print("\nIniciando ejecucion del Pipeline Inteligente...")
+   print("Asegurate de tener datos_consolidados_40_registros.csv en esta carpeta.\n")
+   # Ejecutar el pipeline completo y capturar todos los resultados
+   resultados = pipeline_inteligente()
+   # Verificar que el pipeline se ejecutó correctamente
+   if resultados is not None:
+       print("\n" + "=" * 60)
+       print("  EJECUCION FINALIZADA")
+       print("=" * 60)
+       print("\n  Archivos generados en esta carpeta:")
+       archivos_esperados = [
+           "datos_500_registros.csv",
+           "reporte_metricas.txt",
+           "grafico_distribucion_datos.png",
+           "grafico_resultados_modelo.png",
+           "dashboard_completo.png",
+       ]
+       for archivo in archivos_esperados:
+           existe = os.path.exists(archivo)
+           icono  = "✓" if existe else "✗"
+           print(f"    {icono} {archivo}")
+       print("\n  Objetos disponibles en 'resultados':")
+       for clave, valor in resultados.items():
+           tipo = type(valor).__name__
+           print(f"    - resultados['{clave}'] : {tipo}")
+       print("\n  Para analisis adicional en modo interactivo, ejecuta:")
+       print("  >>> import pipeline-inteligente as p")
+       print("  >>> r = p.pipeline_inteligente()")
+       print("  >>> r['modelo'].predict(r['X_test'][:5])")
+       print("  >>> r['df_expandido'].describe()")
+   else:
+       print("\n  El pipeline termino con errores.")
+       print("  Revisa los mensajes anteriores para diagnosticar el problema.")
+   print("\nScript ejecutado completamente.")
+   print("Revisa los archivos generados y las visualizaciones.")

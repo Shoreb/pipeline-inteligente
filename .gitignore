@@ -1,3 +1,14 @@
 # Entorno virtual
 .venv/
 venv/
+
+# Ignorar imágenes generadas por el pipeline
+grafico_distribucion_datos.png
+grafico_resultados_modelo.png
+dashboard_completo.png
+
+# Ignorar reportes de texto generados
+reporte_metricas.txt
+
+# Ignorar el dataset sintético generado por el pipeline
+datos_500_registros.csv
