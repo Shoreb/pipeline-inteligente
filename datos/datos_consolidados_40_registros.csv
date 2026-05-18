@@ -1,0 +1,41 @@
+id,nombre,categoria,precio,origen,fecha_registro
+1,Producto_1,Tech,29.99,CSV,2024-10-05
+2,Producto_2,Libro,49.99,CSV,2024-10-05
+3,Producto_3,Software,79.99,CSV,2024-10-05
+4,Producto_4,Hardware,99.99,CSV,2024-10-05
+5,Producto_5,Curso,149.99,CSV,2024-10-05
+6,Producto_6,Tech,29.99,CSV,2024-10-05
+7,Producto_7,Libro,49.99,CSV,2024-10-05
+8,Producto_8,Software,79.99,CSV,2024-10-05
+9,Producto_9,Hardware,99.99,CSV,2024-10-05
+10,Producto_10,Curso,149.99,CSV,2024-10-05
+101,API_Item_1,Service,41.49,API,2024-10-05
+102,API_Item_2,Cloud,56.99,API,2024-10-05
+103,API_Item_3,Mobile,72.49,API,2024-10-05
+104,API_Item_4,Web,87.99,API,2024-10-05
+105,API_Item_5,Digital,103.49,API,2024-10-05
+106,API_Item_6,Service,118.99,API,2024-10-05
+107,API_Item_7,Cloud,134.49,API,2024-10-05
+108,API_Item_8,Mobile,149.99,API,2024-10-05
+109,API_Item_9,Web,165.49,API,2024-10-05
+110,API_Item_10,Digital,180.99,API,2024-10-05
+201,El Poder de Emprendimiento,Educación,30.17,BD,2024-10-05
+202,Introducción a DevOps,Investigación,33.9,BD,2024-10-05
+203,Principios de Robótica,Ciencias,29.6,BD,2024-10-05
+204,Manual de Física Cuántica,Ciencias,47.18,BD,2024-10-05
+205,Técnicas de Programación Web,Matemáticas,42.36,BD,2024-10-05
+206,Guía Completa de Gestión de Proyectos,Gestión,105.16,BD,2024-10-05
+207,Historia de Ciberseguridad,Educación,38.17,BD,2024-10-05
+208,El Poder de Sostenibilidad,Ingeniería,148.08,BD,2024-10-05
+209,Fundamentos de Sostenibilidad,Datos,179.38,BD,2024-10-05
+210,Principios de Transformación Digital,Programación,27.56,BD,2024-10-05
+301,Web_Libro_1,Libro,12.99,Web Scraping,2024-10-05
+302,Web_Libro_2,Libro,13.99,Web Scraping,2024-10-05
+303,Web_Libro_3,Libro,14.99,Web Scraping,2024-10-05
+304,Web_Libro_4,Libro,15.99,Web Scraping,2024-10-05
+305,Web_Libro_5,Libro,16.990000000000002,Web Scraping,2024-10-05
+306,Web_Libro_6,Libro,17.990000000000002,Web Scraping,2024-10-05
+307,Web_Libro_7,Libro,18.990000000000002,Web Scraping,2024-10-05
+308,Web_Libro_8,Libro,19.990000000000002,Web Scraping,2024-10-05
+309,Web_Libro_9,Libro,20.990000000000002,Web Scraping,2024-10-05
+310,Web_Libro_10,Libro,21.990000000000002,Web Scraping,2024-10-05
