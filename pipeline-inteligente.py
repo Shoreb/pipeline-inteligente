@@ -684,3 +684,482 @@ def codificar_variables_categoricas(df):
     # Retornamos AMBOS: el DataFrame codificado y los encoders guardados.
     # El pipeline principal los usará por separado.
     return df_encoded, encoders
+
+ 
+# =============================================================================
+# 4. FUNCIONES DE VALIDACIÓN Y CALIDAD (VALIDATE)
+# =============================================================================
+ 
+def detectar_outliers(df):
+    """
+    Identificar valores atípicos usando dos métodos estadísticos complementarios.
+ 
+    MÉTODO 1 — IQR (Rango Intercuartílico):
+        - Q1 = percentil 25, Q3 = percentil 75
+        - IQR = Q3 - Q1  (el 50% central de los datos)
+        - Límite inferior = Q1 - 1.5 × IQR
+        - Límite superior = Q3 + 1.5 × IQR
+        - Todo valor fuera de esos límites = outlier
+        - Ventaja: robusto, no asume distribución normal
+        - Uso típico: boxplots, análisis exploratorio
+ 
+    MÉTODO 2 — Z-score:
+        - z = (valor - media) / desviación_estándar
+        - Si |z| > 3 → el valor está a más de 3 desviaciones de la media
+        - Por la regla empírica, el 99.7% de datos normales caen dentro de ±3σ
+        - Ventaja: intuitivo y fácil de comunicar a negocio
+        - Limitación: asume distribución aproximadamente normal
+ 
+    ¿QUÉ HACEMOS CON LOS OUTLIERS?
+    En este proyecto los DETECTAMOS y REPORTAMOS pero NO los eliminamos.
+    Razón: con solo 40 registros originales, eliminar outliers reduciría
+    demasiado la información. Los reportamos para que el analista decida.
+ 
+    Args:
+        df (pd.DataFrame): Dataset expandido con variables numéricas
+ 
+    Returns:
+        dict: Reporte de outliers por columna y método
+    """
+ 
+    print("  Detectando outliers con métodos IQR y Z-score...")
+ 
+    # Solo analizamos columnas numéricas que tengan sentido de negocio.
+    # Excluimos id (identificador), columnas encoded (ya son categóricas convertidas)
+    # y variables binarias (solo tienen 0 y 1, no pueden ser outliers).
+    columnas_excluir = ['id', 'categoria_encoded', 'origen_encoded',
+                        'es_precio_alto', 'es_nacional', 'dia_semana_registro',
+                        'mes_registro', 'anio_registro', 'dia_mes_registro']
+ 
+    columnas_analizar = [
+        c for c in df.select_dtypes(include=[np.number]).columns
+        if c not in columnas_excluir
+    ]
+ 
+    reporte_outliers = {}
+    total_outliers_encontrados = 0
+ 
+    for col in columnas_analizar:
+        # Eliminar NaN antes de calcular — algunos métodos fallan con NaN
+        serie = df[col].dropna()
+ 
+        if len(serie) < 4:
+            # Con menos de 4 valores no podemos calcular cuartiles confiables
+            continue
+ 
+        reporte_col = {}
+ 
+        # -------------------------------------------------------------------
+        # MÉTODO 1: IQR
+        # -------------------------------------------------------------------
+        Q1  = serie.quantile(0.25)   # Percentil 25: el 25% de datos está por debajo
+        Q3  = serie.quantile(0.75)   # Percentil 75: el 75% de datos está por debajo
+        IQR = Q3 - Q1                # Rango del 50% central de los datos
+ 
+        limite_inferior_iqr = Q1 - 1.5 * IQR
+        limite_superior_iqr = Q3 + 1.5 * IQR
+ 
+        # Máscara booleana: True en cada fila que es outlier por IQR
+        mascara_iqr = (serie < limite_inferior_iqr) | (serie > limite_superior_iqr)
+        outliers_iqr = serie[mascara_iqr]
+ 
+        reporte_col['IQR'] = {
+            'Q1'               : round(float(Q1), 2),
+            'Q3'               : round(float(Q3), 2),
+            'IQR'              : round(float(IQR), 2),
+            'limite_inferior'  : round(float(limite_inferior_iqr), 2),
+            'limite_superior'  : round(float(limite_superior_iqr), 2),
+            'total_outliers'   : int(mascara_iqr.sum()),
+            'porcentaje'       : round(float(mascara_iqr.sum() / len(serie) * 100), 2),
+            'valores'          : outliers_iqr.tolist()[:10]  # Máximo 10 para no saturar el reporte
+        }
+ 
+        # -------------------------------------------------------------------
+        # MÉTODO 2: Z-score
+        # -------------------------------------------------------------------
+        # (valor - media) / std: cuántas desviaciones estándar está del centro
+        media = serie.mean()
+        std   = serie.std()
+ 
+        if std == 0:
+            # Si std=0 todos los valores son iguales, no hay outliers posibles
+            reporte_col['Z_score'] = {'total_outliers': 0, 'nota': 'std=0, todos los valores son iguales'}
+        else:
+            z_scores     = (serie - media) / std
+            # abs() → valor absoluto: nos da la distancia sin importar si es mayor o menor
+            mascara_z    = z_scores.abs() > 3
+            outliers_z   = serie[mascara_z]
+ 
+            reporte_col['Z_score'] = {
+                'media'          : round(float(media), 2),
+                'std'            : round(float(std), 2),
+                'umbral'         : 3,
+                'total_outliers' : int(mascara_z.sum()),
+                'porcentaje'     : round(float(mascara_z.sum() / len(serie) * 100), 2),
+                'valores'        : outliers_z.tolist()[:10]
+            }
+ 
+        reporte_outliers[col] = reporte_col
+        total_col = reporte_col['IQR']['total_outliers']
+        total_outliers_encontrados += total_col
+ 
+        # Imprimir resumen por columna
+        pct = reporte_col['IQR']['porcentaje']
+        estado = "⚠" if total_col > 0 else "✓"
+        print(f"  {estado} {col}: {total_col} outliers por IQR ({pct}%) | "
+              f"Rango válido: [{limite_inferior_iqr:,.2f}, {limite_superior_iqr:,.2f}]")
+ 
+    # -----------------------------------------------------------------------
+    # RESUMEN GLOBAL
+    # -----------------------------------------------------------------------
+    print("\n  Total outliers detectados (IQR): {total_outliers_encontrados}")
+    print("  DECISIÓN: Outliers documentados pero NO eliminados.")
+    print("  Justificación: dataset pequeño, outliers pueden ser valores reales de negocio.")
+ 
+    reporte_outliers['_resumen'] = {
+        'columnas_analizadas'      : len(columnas_analizar),
+        'total_outliers_iqr'       : total_outliers_encontrados,
+        'decision'                 : 'conservar',
+        'justificacion'            : 'Dataset pequeño. Outliers pueden representar productos premium reales.'
+    }
+ 
+    return reporte_outliers
+ 
+ 
+def validar_calidad_expansion(df_original, df_expandido):
+    """
+    Verificar que el dataset expandido es estadísticamente coherente con el original.
+ 
+    PRINCIPIO: Un buen Data Augmentation no cambia la naturaleza del dataset.
+    Si los precios originales tenían media=$500, el expandido también debería
+    tener media cercana a $500. Si la distribución cambia mucho, los datos
+    sintéticos introducen sesgos que contaminarán el modelo ML.
+ 
+    QUÉ COMPARAMOS:
+    1. Estadísticas descriptivas de precio (media, mediana, std, min, max)
+    2. Proporciones por categoría
+    3. Proporciones por origen
+    4. Rango de fechas
+ 
+    MÉTRICA DE CALIDAD USADA: Diferencia porcentual
+        diff% = |valor_expandido - valor_original| / valor_original × 100
+    Si diff% < 15% → expansión aceptable
+    Si diff% > 15% → revisar técnica de augmentation
+ 
+    Args:
+        df_original  (pd.DataFrame): Dataset de 40 registros originales
+        df_expandido (pd.DataFrame): Dataset de 500 registros expandidos
+ 
+    Returns:
+        dict: Reporte comparativo con métricas de calidad
+    """
+ 
+    print("  Comparando distribuciones: original vs expandido...")
+ 
+    reporte_calidad = {
+        'n_original' : len(df_original),
+        'n_expandido': len(df_expandido),
+        'comparaciones': {}
+    }
+ 
+    UMBRAL_TOLERANCIA = 15.0  # % máximo de diferencia aceptable
+ 
+    # -----------------------------------------------------------------------
+    # COMPARACIÓN 1: Estadísticas descriptivas de precio
+    # -----------------------------------------------------------------------
+    # .describe() calcula en una sola llamada: count, mean, std, min, 25%, 50%, 75%, max
+    if 'precio' in df_original.columns and 'precio' in df_expandido.columns:
+ 
+        stats_orig = df_original['precio'].describe()
+        stats_exp  = df_expandido['precio'].describe()
+ 
+        metricas_precio = {}
+        print("\n  Comparación de precio (original → expandido):")
+        print(f"  {'Métrica':<12} {'Original':>12} {'Expandido':>12} {'Diferencia':>12} {'Estado':>8}")
+        print("  " + "-" * 58)
+ 
+        for metrica in ['mean', '50%', 'std', 'min', 'max']:
+            val_orig = stats_orig[metrica]
+            val_exp  = stats_exp[metrica]
+ 
+            # Diferencia porcentual: qué tanto cambió en términos relativos
+            if val_orig != 0:
+                diff_pct = abs(val_exp - val_orig) / abs(val_orig) * 100
+            else:
+                diff_pct = 0.0
+ 
+            estado = "✓ OK" if diff_pct <= UMBRAL_TOLERANCIA else "⚠ REVISAR"
+            nombre_metrica = 'mediana' if metrica == '50%' else metrica
+ 
+            print(f"  {nombre_metrica:<12} {val_orig:>12,.2f} {val_exp:>12,.2f} {diff_pct:>11.1f}% {estado:>8}")
+ 
+            metricas_precio[nombre_metrica] = {
+                'original' : round(float(val_orig), 2),
+                'expandido': round(float(val_exp), 2),
+                'diff_pct' : round(diff_pct, 2),
+                'estado'   : 'OK' if diff_pct <= UMBRAL_TOLERANCIA else 'REVISAR'
+            }
+ 
+        reporte_calidad['comparaciones']['precio'] = metricas_precio
+ 
+    # -----------------------------------------------------------------------
+    # COMPARACIÓN 2: Proporciones por categoría
+    # -----------------------------------------------------------------------
+    # value_counts(normalize=True): proporción de cada categoría (suma = 1.0)
+    if 'categoria' in df_original.columns and 'categoria' in df_expandido.columns:
+ 
+        prop_orig = df_original['categoria'].value_counts(normalize=True)
+        prop_exp  = df_expandido['categoria'].value_counts(normalize=True)
+ 
+        print("\n  Proporciones por categoría (original → expandido):")
+        print(f"  {'Categoría':<20} {'Original':>10} {'Expandido':>10} {'Δ puntos':>10} {'Estado':>8}")
+        print("  " + "-" * 60)
+ 
+        comp_categorias = {}
+        for cat in prop_orig.index:
+            p_orig = prop_orig.get(cat, 0.0)
+            p_exp  = prop_exp.get(cat, 0.0)
+            # Para proporciones usamos diferencia absoluta en puntos porcentuales
+            delta_pp = abs(p_exp - p_orig) * 100
+            estado   = "✓ OK" if delta_pp <= 5.0 else "⚠ REVISAR"  # Tolerancia de 5pp para proporciones
+ 
+            print(f"  {cat:<20} {p_orig:>9.1%} {p_exp:>10.1%} {delta_pp:>9.1f}pp {estado:>8}")
+ 
+            comp_categorias[cat] = {
+                'original' : round(float(p_orig), 4),
+                'expandido': round(float(p_exp), 4),
+                'delta_pp' : round(delta_pp, 2),
+                'estado'   : 'OK' if delta_pp <= 5.0 else 'REVISAR'
+            }
+ 
+        reporte_calidad['comparaciones']['categorias'] = comp_categorias
+ 
+    # -----------------------------------------------------------------------
+    # COMPARACIÓN 3: Proporciones por origen
+    # -----------------------------------------------------------------------
+    if 'origen' in df_original.columns and 'origen' in df_expandido.columns:
+ 
+        prop_orig_o = df_original['origen'].value_counts(normalize=True)
+        prop_exp_o  = df_expandido['origen'].value_counts(normalize=True)
+ 
+        print("\n  Proporciones por origen (original → expandido):")
+        comp_origen = {}
+        for orig_val in prop_orig_o.index:
+            p_o = prop_orig_o.get(orig_val, 0.0)
+            p_e = prop_exp_o.get(orig_val, 0.0)
+            delta = abs(p_e - p_o) * 100
+            estado = "✓ OK" if delta <= 5.0 else "⚠ REVISAR"
+            print(f"    {orig_val:<18}: {p_o:.1%} → {p_e:.1%}  Δ={delta:.1f}pp  {estado}")
+            comp_origen[orig_val] = {'original': round(float(p_o), 4),
+                                     'expandido': round(float(p_e), 4),
+                                     'delta_pp' : round(delta, 2)}
+ 
+        reporte_calidad['comparaciones']['origen'] = comp_origen
+ 
+    # -----------------------------------------------------------------------
+    # VEREDICTO GLOBAL
+    # -----------------------------------------------------------------------
+    # Revisamos cuántas métricas de precio están fuera de tolerancia
+    metricas_precio_dict = reporte_calidad['comparaciones'].get('precio', {})
+    n_fuera_tolerancia = sum(
+        1 for v in metricas_precio_dict.values()
+        if isinstance(v, dict) and v.get('estado') == 'REVISAR'
+    )
+ 
+    if n_fuera_tolerancia == 0:
+        veredicto = "APROBADO"
+        print("\n  ✓ VEREDICTO: Expansión APROBADA — distribuciones estadísticamente coherentes")
+    elif n_fuera_tolerancia <= 2:
+        veredicto = "ACEPTABLE"
+        print("\n  ⚠ VEREDICTO: Expansión ACEPTABLE — {n_fuera_tolerancia} métrica(s) fuera de tolerancia")
+    else:
+        veredicto = "REVISAR"
+        print("\n  ✗ VEREDICTO: Expansión REQUIERE REVISIÓN — {n_fuera_tolerancia} métricas fuera de tolerancia")
+ 
+    reporte_calidad['veredicto'] = veredicto
+    return reporte_calidad
+ 
+
+def generar_reporte_calidad(df):
+    """
+    Generar reporte ejecutivo completo de calidad del dataset expandido.
+ 
+    PROPÓSITO:
+    Este reporte es el "pasaporte de calidad" del dataset.
+    Antes de entrenar cualquier modelo, un Data Engineer debe poder
+    responder: ¿Cuántos registros? ¿Cuántos nulos? ¿Qué distribuciones?
+    ¿Hay duplicados? ¿Los rangos tienen sentido de negocio?
+ 
+    SECCIONES DEL REPORTE:
+    1. Dimensiones generales
+    2. Estadísticas descriptivas por columna numérica
+    3. Distribución de variables categóricas
+    4. Conteo de nulos y duplicados
+    5. Resumen ejecutivo con semáforo de calidad
+ 
+    Args:
+        df (pd.DataFrame): Dataset expandido y transformado
+ 
+    Returns:
+        dict: Reporte completo de calidad listo para exportar o imprimir
+    """
+ 
+    print("  Generando reporte completo de calidad de datos...")
+ 
+    separador = "  " + "=" * 54
+ 
+    # -----------------------------------------------------------------------
+    # SECCIÓN 1: Dimensiones generales
+    # -----------------------------------------------------------------------
+    print(separador)
+    print("  REPORTE DE CALIDAD — DATASET EXPANDIDO")
+    print(separador)
+    print(f"  Filas totales   : {len(df):,}")
+    print(f"  Columnas totales: {len(df.columns)}")
+    print(f"  Memoria usada   : {df.memory_usage(deep=True).sum() / 1024:.1f} KB")
+ 
+    reporte = {
+        'dimensiones': {
+            'filas'  : len(df),
+            'columnas': len(df.columns),
+            'memoria_kb': round(df.memory_usage(deep=True).sum() / 1024, 2)
+        }
+    }
+ 
+    # -----------------------------------------------------------------------
+    # SECCIÓN 2: Estadísticas descriptivas — columnas numéricas
+    # -----------------------------------------------------------------------
+    # .describe() calcula count, mean, std, min, 25%, 50%, 75%, max
+    # Transponemos (.T) para que cada columna numérica sea una fila del reporte
+    columnas_numericas = df.select_dtypes(include=[np.number]).columns.tolist()
+    columnas_reporte   = [c for c in columnas_numericas if c not in ['id']]
+ 
+    print("\n  ESTADÍSTICAS DESCRIPTIVAS (columnas numéricas clave):")
+    print(f"  {'Columna':<28} {'Media':>10} {'Mediana':>10} {'Std':>10} {'Min':>10} {'Max':>10}")
+    print("  " + "-" * 72)
+ 
+    stats_numericas = {}
+    for col in columnas_reporte:
+        serie = df[col].dropna()
+        if len(serie) == 0:
+            continue
+        media   = serie.mean()
+        mediana = serie.median()
+        std     = serie.std()
+        minimo  = serie.min()
+        maximo  = serie.max()
+ 
+        print(f"  {col:<28} {media:>10,.2f} {mediana:>10,.2f} {std:>10,.2f} {minimo:>10,.2f} {maximo:>10,.2f}")
+ 
+        stats_numericas[col] = {
+            'media'  : round(float(media), 2),
+            'mediana': round(float(mediana), 2),
+            'std'    : round(float(std), 2),
+            'min'    : round(float(minimo), 2),
+            'max'    : round(float(maximo), 2),
+            'nulos'  : int(df[col].isna().sum())
+        }
+ 
+    reporte['estadisticas_numericas'] = stats_numericas
+ 
+    # -----------------------------------------------------------------------
+    # SECCIÓN 3: Distribución de variables categóricas
+    # -----------------------------------------------------------------------
+    columnas_categoricas = ['categoria', 'origen']
+    stats_categoricas    = {}
+ 
+    for col in columnas_categoricas:
+        if col not in df.columns:
+            continue
+ 
+        conteos     = df[col].value_counts()
+        proporciones = df[col].value_counts(normalize=True)
+        n_unicos    = df[col].nunique()   # .nunique() → número de valores únicos
+ 
+        print("\n  DISTRIBUCIÓN — {col.upper()} ({n_unicos} valores únicos):")
+        col_stats = {}
+        for valor in conteos.index:
+            cnt = conteos[valor]
+            pct = proporciones[valor]
+            barra = "█" * int(pct * 30)   # Barra visual proporcional (máx 30 chars)
+            print(f"    {valor:<18} {cnt:>5} registros  {pct:>6.1%}  {barra}")
+            col_stats[valor] = {'count': int(cnt), 'pct': round(float(pct), 4)}
+ 
+        stats_categoricas[col] = {
+            'n_unicos': n_unicos,
+            'distribucion': col_stats
+        }
+ 
+    reporte['estadisticas_categoricas'] = stats_categoricas
+ 
+    # -----------------------------------------------------------------------
+    # SECCIÓN 4: Calidad — nulos, duplicados, valores únicos
+    # -----------------------------------------------------------------------
+    nulos_total      = df.isnull().sum().sum()       # Suma de todos los NaN del DataFrame
+    duplicados_total = df.duplicated().sum()
+    nulos_por_col    = df.isnull().sum()
+    cols_con_nulos   = nulos_por_col[nulos_por_col > 0]
+ 
+    print("\n  CALIDAD DE DATOS:")
+    print(f"    Valores nulos totales  : {nulos_total:,}")
+    print(f"    Filas duplicadas       : {duplicados_total:,}")
+    print(f"    Columnas con nulos     : {len(cols_con_nulos)}")
+ 
+    if len(cols_con_nulos) > 0:
+        for col, n in cols_con_nulos.items():
+            pct = n / len(df) * 100
+            print(f"      - {col}: {n} nulos ({pct:.1f}%)")
+ 
+    reporte['calidad'] = {
+        'nulos_totales'    : int(nulos_total),
+        'duplicados'       : int(duplicados_total),
+        'cols_con_nulos'   : cols_con_nulos.to_dict()
+    }
+ 
+    # -----------------------------------------------------------------------
+    # SECCIÓN 5: Semáforo de calidad ejecutivo
+    # -----------------------------------------------------------------------
+    # Asignamos un puntaje de calidad de 0 a 100 basado en 4 criterios
+    puntaje = 100
+ 
+    if nulos_total > 0:
+        penalizacion_nulos = min(30, int(nulos_total / len(df) * 100))
+        puntaje -= penalizacion_nulos
+ 
+    if duplicados_total > 0:
+        puntaje -= min(20, int(duplicados_total / len(df) * 100))
+ 
+    # Verificar que hay exactamente 500 registros
+    if len(df) != 500:
+        puntaje -= 10
+ 
+    # Verificar que el precio no tiene valores negativos
+    if 'precio' in df.columns:
+        precios_invalidos = (df['precio'] <= 0).sum()
+        if precios_invalidos > 0:
+            puntaje -= 20
+ 
+    # Asignar nivel de calidad
+    if puntaje >= 90:
+        nivel = "EXCELENTE"
+        icono = "✓"
+    elif puntaje >= 75:
+        nivel = "BUENO"
+        icono = "✓"
+    elif puntaje >= 60:
+        nivel = "ACEPTABLE"
+        icono = "⚠"
+    else:
+        nivel = "REQUIERE MEJORA"
+        icono = "✗"
+ 
+    print(separador)
+    print(f"  {icono} PUNTAJE DE CALIDAD: {puntaje}/100 — {nivel}")
+    print(separador)
+ 
+    reporte['semaforo_calidad'] = {
+        'puntaje': puntaje,
+        'nivel'  : nivel
+    }
+ 
+    return reporte
