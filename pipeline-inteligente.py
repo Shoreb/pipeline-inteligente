@@ -1510,13 +1510,15 @@ def graficar_distribucion_datos(df):
             barra.get_x() + barra.get_width() / 2,  # Centro horizontal de la barra
             barra.get_height() + 1,                  # Justo encima de la barra
             f'{valor}\n({pct:.1f}%)',
-            ha='center', va='bottom', fontsize=9, fontweight='bold'
+            ha='center', va='bottom', fontsize=8, fontweight='bold', rotation=90
         )
  
     ax2.set_title('Registros por Categoría', fontsize=13, fontweight='bold')
     ax2.set_xlabel('Categoría', fontsize=11)
     ax2.set_ylabel('Número de Registros', fontsize=11)
-    ax2.tick_params(axis='x', rotation=15)   # Rotar etiquetas para que no se solapen
+    # ax2.tick_params(axis='x', rotation=15)   # Rotar etiquetas para que no se solapen
+    ax2.set_xticks(range(len(conteo_cat)))
+    ax2.set_xticklabels(conteo_cat.index, rotation=45, ha='right', fontsize=9)
  
     # -----------------------------------------------------------------------
     # SUBPLOT 3 (axes[1,0]): Boxplot precio por categoría
@@ -1543,7 +1545,9 @@ def graficar_distribucion_datos(df):
     ax3.set_title('Distribución de Precio por Categoría', fontsize=13, fontweight='bold')
     ax3.set_xlabel('Categoría', fontsize=11)
     ax3.set_ylabel('Precio ($)', fontsize=11)
-    ax3.tick_params(axis='x', rotation=15)
+    # ax3.tick_params(axis='x', rotation=15)
+    ax3.set_xticks(range(len(orden_cats)))
+    ax3.set_xticklabels(orden_cats, rotation=45, ha='right', fontsize=9)
  
     # -----------------------------------------------------------------------
     # SUBPLOT 4 (axes[1,1]): Mapa de correlación (Heatmap)
@@ -1822,7 +1826,7 @@ def crear_dashboard_completo(df_original, df_expandido, modelo, metricas):
  
     print("  Generando dashboard ejecutivo completo...")
  
-    fig = plt.figure(figsize=(20, 15), facecolor='white')
+    fig = plt.figure(figsize=(22, 15), facecolor='white')
     fig.suptitle(
         'Dashboard Ejecutivo — Pipeline Inteligente de Análisis de Datos',
         fontsize=18, fontweight='bold', y=0.98
@@ -1858,7 +1862,7 @@ def crear_dashboard_completo(df_original, df_expandido, modelo, metricas):
  
     ax1.set_title('Expansión del Dataset por Categoría', fontsize=12, fontweight='bold')
     ax1.set_xticks(x)
-    ax1.set_xticklabels(todas_cats, rotation=15, fontsize=9)
+    ax1.set_xticklabels(todas_cats, rotation=45, ha='right', fontsize=8)
     ax1.set_ylabel('Registros', fontsize=10)
     ax1.legend(fontsize=9)
  
