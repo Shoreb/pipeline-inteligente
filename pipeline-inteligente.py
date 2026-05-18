@@ -1163,3 +1163,240 @@ def generar_reporte_calidad(df):
     }
  
     return reporte
+
+# =============================================================================
+# 5. FUNCIONES DE MODELADO ML (LOAD + MODEL)
+# =============================================================================
+ 
+def preparar_datos_ml(df):
+    """
+    Seleccionar features, definir target y dividir en conjuntos de entrenamiento y prueba.
+ 
+    CONCEPTOS CLAVE:
+    ┌─────────────────────────────────────────────────────────┐
+    │  X (features / predictoras): lo que el modelo RECIBE   │
+    │  y (target / objetivo):      lo que el modelo PREDICE  │
+    └─────────────────────────────────────────────────────────┘
+ 
+    VARIABLE OBJETIVO: precio
+    Queremos predecir el precio de un producto dado su categoría,
+    origen y otras características. Esto tiene valor de negocio real:
+    permite estimar precios de nuevos productos antes de lanzarlos.
+ 
+    TRAIN / TEST SPLIT:
+    Dividimos el dataset en dos bloques separados:
+    - Train (80%): el modelo ve estos datos y ajusta sus coeficientes
+    - Test  (20%): el modelo NUNCA vio estos datos durante el entrenamiento
+    La métrica en Test nos dice si el modelo generaliza o solo memorizó.
+ 
+    ¿POR QUÉ 80/20 Y NO 70/30?
+    Con 500 registros, 80/20 da 400 para entrenar (más datos = mejor modelo)
+    y 100 para evaluar (suficiente para métricas confiables).
+    Con datasets pequeños (<1000), 80/20 es preferible a 70/30.
+ 
+    Args:
+        df (pd.DataFrame): Dataset expandido, limpio y con features codificadas
+ 
+    Returns:
+        tuple: (X_train, X_test, y_train, y_test, features_usadas)
+    """
+ 
+    print("  Preparando datos para Machine Learning...")
+ 
+    # -----------------------------------------------------------------------
+    # PASO 1: Definir variables predictoras (X)
+    # -----------------------------------------------------------------------
+    # Seleccionamos las columnas que el modelo usará para predecir.
+    # CRITERIOS DE SELECCIÓN:
+    # - Deben ser numéricas (el modelo las necesita así)
+    # - No deben ser el target (precio) ni el identificador (id)
+    # - No deben ser la versión original de una columna ya codificada
+    #   (no usamos 'categoria' si ya tenemos 'categoria_encoded')
+ 
+    # Lista de features candidatas — solo las que sabemos que son numéricas y útiles
+    features_candidatas = [
+        'categoria_encoded',       # Categoría del producto (número)
+        'origen_encoded',          # País de origen (número)
+        'mes_registro',            # Mes del registro (1-12)
+        'dia_semana_registro',     # Día de la semana (0-6)
+        'dias_desde_registro',     # Antigüedad del registro
+        'precio_relativo_categoria', # Posición de precio dentro de su categoría
+        'es_nacional',             # Bandera: producto nacional vs importado
+    ]
+ 
+    # Filtrar solo las que realmente existen en el DataFrame
+    # (puede que algunas no se hayan creado si faltaban columnas de origen)
+    features_usadas = [f for f in features_candidatas if f in df.columns]
+ 
+    print(f"  Features seleccionadas ({len(features_usadas)}):")
+    for f in features_usadas:
+        print(f"    - {f}")
+ 
+    # -----------------------------------------------------------------------
+    # PASO 2: Separar X e y
+    # -----------------------------------------------------------------------
+    # X: DataFrame con solo las columnas predictoras
+    # y: Serie con la columna objetivo (precio)
+    X = df[features_usadas].copy()
+    y = df['precio'].copy()
+ 
+    # Eliminar filas con NaN en X o y — sklearn no acepta valores faltantes
+    # .dropna() sobre X nos da los índices válidos
+    indices_validos = X.dropna().index.intersection(y.dropna().index)
+    X = X.loc[indices_validos]
+    y = y.loc[indices_validos]
+ 
+    print(f"\n  Shape de X (features): {X.shape}  →  {X.shape[0]} muestras × {X.shape[1]} features")
+    print(f"  Shape de y (target)  : {y.shape}  →  {y.shape[0]} valores de precio")
+    print(f"  Precio objetivo — media: ${y.mean():,.2f}  |  rango: [${y.min():,.2f}, ${y.max():,.2f}]")
+ 
+    # -----------------------------------------------------------------------
+    # PASO 3: Dividir en Train y Test
+    # -----------------------------------------------------------------------
+    # train_test_split parámetros explicados:
+    # - X, y          : los datos a dividir (se dividen igual para mantener correspondencia)
+    # - test_size=0.2 : 20% para test, 80% para train
+    # - random_state=42: semilla para reproducibilidad — siempre la misma división
+    # - shuffle=True  : mezcla los datos antes de dividir (evita sesgos de orden)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y,
+        test_size=0.2,
+        random_state=42,
+        shuffle=True
+    )
+ 
+    print(f"\n  División Train/Test (80/20):")
+    print(f"    Train: {X_train.shape[0]} muestras ({X_train.shape[0]/len(X)*100:.0f}%)")
+    print(f"    Test : {X_test.shape[0]} muestras ({X_test.shape[0]/len(X)*100:.0f}%)")
+    print(f"\n  ✓ Datos listos para entrenar el modelo")
+ 
+    return X_train, X_test, y_train, y_test, features_usadas
+ 
+ 
+def entrenar_modelo_regresion(X_train, y_train):
+    """
+    Instanciar y entrenar el modelo de Regresión Lineal.
+ 
+    EL PROCESO DE ENTRENAMIENTO:
+    sklearn usa el método de Mínimos Cuadrados Ordinarios (OLS):
+    Encuentra los valores de β que minimizan la suma de errores al cuadrado:
+        minimizar Σ(y_real - y_predicho)²
+    """
+ 
+    print("  Entrenando modelo de Regresión Lineal...")
+    print(f"  Muestras de entrenamiento: {X_train.shape[0]}")
+    print(f"  Features utilizadas      : {X_train.shape[1]}")
+ 
+    # -----------------------------------------------------------------------
+    # INSTANCIAR EL MODELO
+    # -----------------------------------------------------------------------
+    # LinearRegression() crea el modelo pero AÚN NO ha aprendido nada.
+    # Es como contratar a un empleado: está listo para trabajar, pero
+    # todavía no ha visto ningún dato.
+    #
+    # Parámetros disponibles (usamos defaults que son correctos para este caso):
+    # - fit_intercept=True : calcula β₀ (intercepto). Casi siempre debe ser True.
+    # - positive=False     : permite coeficientes negativos (precio puede bajar con ciertas features)
+    modelo = LinearRegression(fit_intercept=True)
+ 
+    # -----------------------------------------------------------------------
+    # ENTRENAR EL MODELO — .fit()
+    # -----------------------------------------------------------------------
+    # .fit(X_train, y_train): EL momento donde ocurre el aprendizaje.
+    # sklearn calcula internamente la solución OLS:
+    #     β = (XᵀX)⁻¹ Xᵀy
+    # En milisegundos, el modelo encuentra los mejores coeficientes.
+    modelo.fit(X_train, y_train)
+ 
+    # -----------------------------------------------------------------------
+    # INSPECCIONAR LO QUE APRENDIÓ EL MODELO
+    # -----------------------------------------------------------------------
+    print(f"\n  Intercepto (β₀): ${modelo.intercept_:,.2f}")
+    print("  Coeficientes aprendidos (βᵢ):")
+ 
+    # modelo.coef_ : array con un coeficiente por cada feature
+    # zip(columnas, coefs) empareja cada nombre de columna con su coeficiente
+    for feature, coef in zip(X_train.columns, modelo.coef_):
+        signo     = "▲" if coef > 0 else "▼"   # ▲ sube precio, ▼ baja precio
+        impacto   = "alto" if abs(coef) > 50 else "medio" if abs(coef) > 10 else "bajo"
+        print(f"    {signo} {feature:<30}: {coef:>10,.4f}  (impacto {impacto})")
+ 
+    print(f"\n  ✓ Modelo entrenado exitosamente")
+    print("  Interpretación: cada coeficiente indica cuánto cambia el precio")
+    print("  predicho al aumentar esa feature en 1 unidad, manteniendo el resto fijo.")
+ 
+    return modelo
+ 
+ 
+def evaluar_modelo(modelo, X_train, X_test, y_train, y_test):
+    """
+    Calcular y comparar métricas de rendimiento del modelo en Train y Test.
+    """
+ 
+    print("  Evaluando rendimiento del modelo...")
+ 
+    # -----------------------------------------------------------------------
+    # PASO 1: Generar predicciones
+    # -----------------------------------------------------------------------
+    # .predict(X): aplica la ecuación aprendida β₀ + β₁x₁ + β₂x₂ + ...
+    # Devuelve un array numpy con un precio predicho por cada fila de X.
+    y_pred_train = modelo.predict(X_train)
+    y_pred_test  = modelo.predict(X_test)
+ 
+    # -----------------------------------------------------------------------
+    # PASO 2: Calcular métricas en Train
+    # -----------------------------------------------------------------------
+    r2_train   = r2_score(y_train, y_pred_train)
+    # mean_squared_error devuelve MSE; aplicamos sqrt() para obtener RMSE
+    rmse_train = np.sqrt(mean_squared_error(y_train, y_pred_train))
+    mae_train  = mean_absolute_error(y_train, y_pred_train)
+ 
+    # -----------------------------------------------------------------------
+    # PASO 3: Calcular métricas en Test
+    # -----------------------------------------------------------------------
+    r2_test    = r2_score(y_test, y_pred_test)
+    rmse_test  = np.sqrt(mean_squared_error(y_test, y_pred_test))
+    mae_test   = mean_absolute_error(y_test, y_pred_test)
+ 
+    # -----------------------------------------------------------------------
+    # PASO 4: Mostrar tabla comparativa
+    # -----------------------------------------------------------------------
+    print(f"\n  {'Métrica':<8} {'Train':>12} {'Test':>12} {'Diferencia':>12}")
+    print("  " + "-" * 46)
+    print(f"  {'R²':<8} {r2_train:>12.4f} {r2_test:>12.4f} {abs(r2_train - r2_test):>12.4f}")
+    print(f"  {'RMSE':<8} {rmse_train:>11,.2f} {rmse_test:>11,.2f} {abs(rmse_train - rmse_test):>11,.2f}")
+    print(f"  {'MAE':<8} {mae_train:>11,.2f} {mae_test:>11,.2f} {abs(mae_train - mae_test):>11,.2f}")
+ 
+    # -----------------------------------------------------------------------
+    # PASO 5: Diagnóstico automático de overfitting / underfitting
+    # -----------------------------------------------------------------------
+    diferencia_r2 = r2_train - r2_test
+ 
+    print("\n  DIAGNÓSTICO DEL MODELO:")
+    if r2_test < 0.3:
+        diagnostico = "UNDERFITTING"
+        print("  ✗ UNDERFITTING: El modelo es demasiado simple para capturar los patrones.")
+        print("    Sugerencia: agregar más features o explorar modelos no lineales.")
+    elif diferencia_r2 > 0.15:
+        diagnostico = "OVERFITTING"
+        print("  ⚠ OVERFITTING: El modelo memorizó el train pero no generaliza bien.")
+        print("    Sugerencia: reducir features o aumentar datos de entrenamiento.")
+    elif r2_test >= 0.7:
+        diagnostico = "EXCELENTE"
+        print("  ✓ EXCELENTE: Modelo con buen poder predictivo y buena generalización.")
+    elif r2_test >= 0.5:
+        diagnostico = "ACEPTABLE"
+        print("  ✓ ACEPTABLE: Modelo funcional. Captura patrones principales del precio.")
+    else:
+        diagnostico = "MEJORABLE"
+        print("  ⚠ MEJORABLE: El modelo captura algo, pero hay margen de mejora.")
+        print("    Sugerencia: revisar feature engineering o limpiar outliers.")
+ 
+    # Interpretación de negocio — cuantificar el error en términos concretos
+    precio_medio = float(y_test.mean())
+    error_relativo = (mae_test / precio_medio) * 100
+    print(f"\n  INTERPRETACIÓN DE NEGOCIO:")
+    print(f"  Precio promedio real    : ${precio_medio:,.2f}")
+    print(f"  Error promedio (MAE)    : ${mae_test:,.2f}")
+    print(f"  Error relativo          : {error_relativo:.1f}% del precio promedio")
+    print(f"  → El modelo se equivoca en promedio ${mae_test:,.2f} por producto")
