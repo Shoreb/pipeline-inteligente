@@ -1401,6 +1401,28 @@ def evaluar_modelo(modelo, X_train, X_test, y_train, y_test):
     print(f"  Error relativo          : {error_relativo:.1f}% del precio promedio")
     print(f"  → El modelo se equivoca en promedio ${mae_test:,.2f} por producto")
 
+    # -----------------------------------------------------------------------
+    # PASO 6: Empaquetar métricas en diccionario
+    # -----------------------------------------------------------------------
+    metricas = {
+        'train': {
+            'r2'  : round(r2_train, 4),
+            'rmse': round(rmse_train, 2),
+            'mae' : round(mae_train, 2)
+        },
+        'test': {
+            'r2'  : round(r2_test, 4),
+            'rmse': round(rmse_test, 2),
+            'mae' : round(mae_test, 2)
+        },
+        'diagnostico'    : diagnostico,
+        'diferencia_r2'  : round(diferencia_r2, 4),
+        'error_relativo_pct': round(error_relativo, 2),
+        'y_pred_test'    : y_pred_test   # Guardamos predicciones para las visualizaciones
+    }
+ 
+    return metricas
+
 # =============================================================================
 # 6. FUNCIONES DE VISUALIZACIÓN
 # =============================================================================
@@ -2014,4 +2036,3 @@ def crear_dashboard_completo(df_original, df_expandido, modelo, metricas):
     plt.show()
  
     return fig
-
